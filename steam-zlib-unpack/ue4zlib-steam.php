@@ -3,8 +3,34 @@ class UE4Zlib {
    private $inputHandle = null;
    private $metadata = [];
    private $memoryLimit = 0;
+   private $maxMemory = "1364M"; // accepts bytes, nK, nM, nG
+   private $checkMagicNumber = true;
 
    public function __construct($filePathIN){
+      $maxMemory = $this->parseMemoryLimit($this->maxMemory);
+      $memory_limit = ini_get('memory_limit');
+      if ( $memory_limit == "-1" ){
+         $memory_limit = $maxMemory;
+      } else {
+         $memory_limit = $this->parseMemoryLimit($memory_limit);
+      }
+
+      // if there's more than maxMemory regardless, clamp to maxMemory
+      if ( $memory_limit > $maxMemory )
+         $memory_limit = $maxMemory;
+
+      // now clamp to 3/4ths of that
+      $memory_limit = floor(bcmul($memory_limit, 0.75));
+
+      // I set the minimum memory limit at a "reasonable" value of 320 KiB, because each chunk (128 KiB inflated) will at worst
+      // be 128 KiB deflated, so a total of 256 KiB + a healthy amount (+50%) for the garbage collector; note that if PHP has
+      // less than about 10~20 MiB of memory, I doubt it'll be able to do much, or even start up at all?
+      if ( $memory_limit < 327680 )
+         throw new Exception("detected PHP memory limit is less than 320 KiB - the unpack process won't be able to proceed");
+      // done with memory limit handling
+
+      $this->memoryLimit = (int) $memory_limit;
+
       if ( realpath($filePathIN) === null )
          throw new Exception("input file path doesn't exist (realpath: null)");
 
@@ -18,30 +44,6 @@ class UE4Zlib {
 
       $this->inputHandle = $handle;
       $this->parseHeaderData();
-
-      $memory_limit = ini_get('memory_limit');
-      if ( $memory_limit == "-1" ){
-         $memory_limit = "1364M"; // limit ourselves to 1 GB of RAM (75% of this value)
-      }
-      if (preg_match('/^(\d+)(.)$/', $memory_limit, $matches)) {
-          if ($matches[2] == 'G')
-              $memory_limit = $matches[1] * 1024 * 1024 * 1024; // nnnG -> nnnGB
-          else if ($matches[2] == 'M')
-              $memory_limit = $matches[1] * 1024 * 1024; // nnnM -> nnn MB
-          else if ($matches[2] == 'K')
-              $memory_limit = $matches[1] * 1024; // nnnK -> nnn KB
-      }
-
-      // I set the minimum memory limit at a "reasonable" value of 320 KiB, because each chunk (128 KiB inflated) will at worst
-      // be 128 KiB deflated, so a total of 256 KiB + a healthy amount (+50%) for the garbage collector; note that if PHP has
-      // less than about 10~20 MiB of memory, I doubt it'll be able to do much, or even start up at all?
-      if ( $memory_limit < 327680 )
-         throw new Exception("detected PHP memory limit is less than 320 KiB - the unpack process won't be able to proceed");
-
-      $memory_limit = floor( bcmul($memory_limit, 0.75) );
-      echo "Resultant memory limit: {$memory_limit}\n";
-
-      $this->memoryLimit = (int) $memory_limit;
    }
 
    public function __destruct(){
@@ -54,11 +56,33 @@ class UE4Zlib {
          throw new Exception("failed closing the input file (unexpected!)");
    }
 
+   private function parseMemoryLimit($memory_limit){
+      if (preg_match('/^(\d+)(.*)$/', $memory_limit, $matches)) {
+         switch($matches[2]){
+            case 'G':
+              $memory_limit = $matches[1] * 1024 * 1024 * 1024; // nnnG -> nnnGB
+            break;
+
+            case 'M':
+              $memory_limit = $matches[1] * 1024 * 1024; // nnnM -> nnn MB
+            break;
+
+            case 'K':
+              $memory_limit = $matches[1] * 1024; // nnnK -> nnn KB
+            break;
+         }
+      }
+      return $memory_limit;
+   }
+
    private function parseHeaderData(){
       $fileStat = array_slice(fstat($this->inputHandle), 13);
 
       $readBuffer = fread($this->inputHandle, 32);
       $meta = unpack("Pmagic/Pblock-size/Ppayload-size/Puncompressed-size", $readBuffer);
+      if ( $this->checkMagicNumber && $meta['magic'] != 2653586369 )
+         throw new Exception("UE4 magic number mismatch - expected 0xC1 0x83 0x2A 0x9E, got ".('0x'.implode(' 0x',array_reverse(str_split(strtoupper(dechex($meta['magic'])),2)))));
+
       $meta['header-length'] = $fileStat['size'] - $meta['payload-size'];
       $meta['index-length']  = $fileStat['size'] - $meta['payload-size'] - 32;
       $meta['block-count']   = $meta['index-length'] / 16;
@@ -98,6 +122,10 @@ class UE4Zlib {
          throw new Exception("chunk size doesn't match throughout the index");
 
       $this->metadata = $meta;
+   }
+
+   public function getInflatedSize(){
+      return $this->metadata['uncompressed-size'];
    }
 
    public function unpack($filePathOUT){
