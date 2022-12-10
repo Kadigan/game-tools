@@ -28,12 +28,9 @@ if ( !$replyJSON )
 
 $socket = socket_create(AF_INET, SOCK_DGRAM, SOL_UDP);
 if ( $socket === false ) die();
-socket_set_nonblock($socket);
-$attempts = 3;
 socket_connect($socket, $serverAddress, $serverPort);
 
 $result = @socket_send($socket, str_pad("", 10, chr(0)), 10, 0);
-
 if ( false === $result )
    die("Failed to create socket: ");
 
@@ -44,7 +41,6 @@ do {
 $readLength = @socket_recv($socket, $readData, 17, 0);
 if ( $readLength === false )
    die("ERR: failed to read from socket: ");
-
 if ( $readLength != 17 )
    die("ERR: failed to read exactly 17 bytes, read {$readLength} bytes instead\n");
 
