@@ -32,7 +32,7 @@ socket_connect($socket, $serverAddress, $serverPort);
 
 $result = @socket_send($socket, str_pad("", 10, chr(0)), 10, 0);
 if ( false === $result )
-   die("Failed to create socket: ");
+   die("Failed to send data: ");
 
 do {
    $reads = [$socket];
