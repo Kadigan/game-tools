@@ -27,7 +27,7 @@ if ( !$replyJSON )
    echo "Querying {$serverAddress}:{$serverPort}\n\n";
 
 $socket = socket_create(AF_INET, SOCK_DGRAM, SOL_UDP);
-if ( $socket === false ) die();
+if ( false === $socket ) die();
 socket_connect($socket, $serverAddress, $serverPort);
 
 $result = @socket_send($socket, str_pad("", 10, chr(0)), 10, 0);
@@ -39,18 +39,18 @@ do {
 } while( socket_select($reads, $__x, $__y, 0, 500) < 1 );
 
 $readLength = @socket_recv($socket, $readData, 17, 0);
-if ( $readLength === false )
+if ( false === $readLength )
    die("ERR: failed to read from socket: ");
-if ( $readLength != 17 )
+if ( 17 != $readLength )
    die("ERR: failed to read exactly 17 bytes, read {$readLength} bytes instead\n");
 
 $readData = unpack("CID/CProtocolVersion/QIgnore/CServerState/VServerVersion/vBeaconPort", $readData);
-if ( $readData['ID'] != 1 ){
+if ( 1 != $readData['ID'] ){
    die("ERR: reply ID != 1\n");
    socket_close($socket); $socket = null; die();
 }
 
-if ( $readData['ProtocolVersion'] != 0 ){
+if ( 0 != $readData['ProtocolVersion'] ){
    echo "ERR: unknown protocol version {$readData['ProtocolVersion']} != 0\n";
    socket_close($socket); $socket = null; die();
 }
